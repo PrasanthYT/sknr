@@ -1,5 +1,6 @@
 use clap::{Parser, ValueEnum};
 use sknr_core::scanner::scan_npm_workspace;
+use sknr_core::threat_intel::{enrich_inventory_with_threat_intel, ThreatIntelOptions};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -20,6 +21,15 @@ enum Commands {
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
+        /// Skip OSV advisory lookups and emit dependency inventory only.
+        #[arg(long)]
+        offline: bool,
+        /// Override the SQLite threat-intel cache path.
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+        /// Force refresh of OSV and CISA KEV cache entries.
+        #[arg(long)]
+        refresh_cache: bool,
     },
 }
 
@@ -29,19 +39,38 @@ enum OutputFormat {
     Json,
 }
 
-fn main() {
-    if let Err(error) = run() {
+#[tokio::main]
+async fn main() {
+    if let Err(error) = run().await {
         eprintln!("error: {error}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Scan { path, format } => {
-            let report = scan_npm_workspace(path)?;
+        Commands::Scan {
+            path,
+            format,
+            offline,
+            cache_path,
+            refresh_cache,
+        } => {
+            let default_cache_path = path.join(".sknr").join("cache.db");
+            let mut report = scan_npm_workspace(&path)?;
+            if !offline {
+                enrich_inventory_with_threat_intel(
+                    &mut report.inventory,
+                    &ThreatIntelOptions {
+                        cache_path: cache_path.unwrap_or(default_cache_path),
+                        refresh_cache,
+                    },
+                )
+                .await?;
+            }
+
             match format {
                 OutputFormat::Text => print_text_report(&report),
                 OutputFormat::Json => {
@@ -56,7 +85,40 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 fn print_text_report(report: &sknr_core::model::ScanReport) {
     println!("root: {}", report.root);
+    println!("packages: {}", report.inventory.len());
+    println!(
+        "vulnerable packages: {}",
+        report
+            .inventory
+            .iter()
+            .filter(|package| !package.advisories.is_empty())
+            .count()
+    );
+    println!(
+        "KEV matches: {}",
+        report
+            .inventory
+            .iter()
+            .flat_map(|package| package.advisories.iter())
+            .filter(|advisory| advisory.kev_match.is_some())
+            .count()
+    );
+    println!(
+        "reachable packages: {}",
+        report
+            .inventory
+            .iter()
+            .filter(|package| {
+                package
+                    .used_by
+                    .iter()
+                    .any(|usage| usage.reachability.imported)
+            })
+            .count()
+    );
     println!("services: {}", report.services.len());
+    println!("topology nodes: {}", report.topology.nodes.len());
+    println!("topology edges: {}", report.topology.edges.len());
 
     for service in &report.services {
         println!();
@@ -71,6 +133,7 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
         );
         println!("  package: {}", service.package_name);
         println!("  path: {}", service.path);
+        println!("  internet facing: {}", service.internet_facing);
 
         for dependency in &service.dependencies {
             println!(
@@ -78,5 +141,21 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
                 dependency.name, dependency.version, dependency.relationship
             );
         }
+    }
+
+    println!();
+    println!("inventory:");
+    for package in &report.inventory {
+        println!(
+            "  - {}@{} (used by {} services, {} advisories, reachable: {})",
+            package.name,
+            package.version,
+            package.used_by.len(),
+            package.advisories.len(),
+            package
+                .used_by
+                .iter()
+                .any(|usage| usage.reachability.imported)
+        );
     }
 }

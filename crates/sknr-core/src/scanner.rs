@@ -1,4 +1,9 @@
-use crate::model::{Dependency, DependencyRelationship, ScanReport, ScannedService};
+use crate::model::{
+    Dependency, DependencyRelationship, InventoryPackage, PackageUsage, ReachabilitySignal,
+    ScanReport, ScannedService,
+};
+use crate::reachability::apply_reachability_signals;
+use crate::topology::{apply_topology_config, TopologyError};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -30,6 +35,8 @@ pub enum ScanError {
     UnsupportedWorkspacePattern(String),
     #[error("workspace package is missing a name: {0}")]
     MissingPackageName(String),
+    #[error(transparent)]
+    Topology(#[from] TopologyError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,15 +109,18 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
     for service_path in workspace_paths {
         let manifest_path = service_path.join("package.json");
         let service_manifest = read_service_manifest(&manifest_path)?;
-        let dependencies = resolve_dependencies(&service_manifest.dependencies, &package_index);
+        let mut dependencies = resolve_dependencies(&service_manifest.dependencies, &package_index);
+        apply_reachability_signals(&root, &service_path, &mut dependencies);
+        let service_name = service_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&service_manifest.package_name)
+            .to_string();
 
         services.push(ScannedService {
-            name: service_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(&service_manifest.package_name)
-                .to_string(),
+            name: service_name,
             path: normalize_path(&relative_path(&root, &service_path)),
+            internet_facing: false,
             package_name: service_manifest.package_name,
             manifest_path: normalize_path(&relative_path(&root, &manifest_path)),
             lockfile_path: normalize_path(&relative_path(&root, &lockfile_path)),
@@ -119,9 +129,13 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
     }
 
     services.sort_by(|left, right| left.path.cmp(&right.path));
+    let topology = apply_topology_config(&root, &mut services)?;
+    let service_relationships = build_service_relationships(&services);
 
     Ok(ScanReport {
         root: root.display().to_string(),
+        topology,
+        inventory: build_inventory(&package_index, &service_relationships),
         services,
     })
 }
@@ -262,8 +276,68 @@ fn resolve_dependencies(
                     name,
                     version: version.clone(),
                     relationship,
+                    reachability: ReachabilitySignal::not_found(),
                 })
             })
+        })
+        .collect()
+}
+
+fn build_inventory(
+    package_index: &BTreeMap<String, LockedPackage>,
+    service_relationships: &BTreeMap<
+        String,
+        BTreeMap<String, (DependencyRelationship, ReachabilitySignal)>,
+    >,
+) -> Vec<InventoryPackage> {
+    package_index
+        .iter()
+        .filter_map(|(name, package)| {
+            let version = package.version.as_ref()?;
+            let mut used_by = Vec::new();
+            let mut relationships = BTreeSet::new();
+
+            for (service, dependencies) in service_relationships {
+                if let Some((relationship, reachability)) = dependencies.get(name) {
+                    used_by.push(PackageUsage {
+                        service: service.clone(),
+                        relationship: *relationship,
+                        reachability: reachability.clone(),
+                    });
+                    relationships.insert(*relationship);
+                }
+            }
+
+            Some(InventoryPackage {
+                name: name.clone(),
+                version: version.clone(),
+                relationships: relationships.into_iter().collect(),
+                used_by,
+                advisories: Vec::new(),
+            })
+        })
+        .collect()
+}
+
+fn build_service_relationships(
+    services: &[ScannedService],
+) -> BTreeMap<String, BTreeMap<String, (DependencyRelationship, ReachabilitySignal)>> {
+    services
+        .iter()
+        .map(|service| {
+            (
+                service.name.clone(),
+                service
+                    .dependencies
+                    .iter()
+                    .map(|dependency| {
+                        (
+                            dependency.name.clone(),
+                            (dependency.relationship, dependency.reachability.clone()),
+                        )
+                    })
+                    .collect(),
+            )
         })
         .collect()
 }
@@ -353,13 +427,66 @@ mod tests {
                     name: "minimist".to_string(),
                     version: "0.0.8".to_string(),
                     relationship: DependencyRelationship::Transitive,
+                    reachability: ReachabilitySignal::not_found(),
                 },
                 Dependency {
                     name: "mkdirp".to_string(),
                     version: "0.5.1".to_string(),
                     relationship: DependencyRelationship::Direct,
+                    reachability: ReachabilitySignal::not_found(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn builds_full_inventory_even_for_unused_lockfile_packages() {
+        let package_index = BTreeMap::from([
+            (
+                "left-pad".to_string(),
+                LockedPackage {
+                    version: Some("1.3.0".to_string()),
+                    dependencies: BTreeMap::new(),
+                },
+            ),
+            (
+                "lodash".to_string(),
+                LockedPackage {
+                    version: Some("4.17.20".to_string()),
+                    dependencies: BTreeMap::new(),
+                },
+            ),
+        ]);
+        let service_relationships = BTreeMap::from([(
+            "api-gateway".to_string(),
+            BTreeMap::from([(
+                "lodash".to_string(),
+                (
+                    DependencyRelationship::Direct,
+                    ReachabilitySignal {
+                        imported: true,
+                        evidence: Vec::new(),
+                    },
+                ),
+            )]),
+        )]);
+
+        let inventory = build_inventory(&package_index, &service_relationships);
+
+        assert_eq!(inventory.len(), 2);
+        assert_eq!(inventory[0].name, "left-pad");
+        assert!(inventory[0].used_by.is_empty());
+        assert_eq!(inventory[1].name, "lodash");
+        assert_eq!(
+            inventory[1].used_by,
+            vec![PackageUsage {
+                service: "api-gateway".to_string(),
+                relationship: DependencyRelationship::Direct,
+                reachability: ReachabilitySignal {
+                    imported: true,
+                    evidence: Vec::new(),
+                },
+            }]
         );
     }
 }
