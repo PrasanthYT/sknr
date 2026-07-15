@@ -23,8 +23,8 @@ docs/                Product and architecture notes
 - [x] OSV + CISA KEV threat-intel cache. ✅
 - [x] lightweight reachability signal. ✅
 - [x] AI-backed priority buckets. ✅
-- [ ] remediation planner.
-- [ ] Codex executor.
-- [ ] verification loop.
+- [x] remediation planner. ✅
+- [x] Codex executor. ✅
+- [x] verification loop. ✅
 - [ ] dashboard.
 - [ ] static HTML report.

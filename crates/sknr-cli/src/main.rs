@@ -1,7 +1,12 @@
 use clap::{Parser, ValueEnum};
+use sknr_core::executor::execute_codex_plan;
+use sknr_core::model::ScanReport;
 use sknr_core::priority::{prioritize_inventory_with_openai, AiPriorityOptions};
+use sknr_core::remediation::{build_remediation_plans, RemediationPlan};
 use sknr_core::scanner::scan_npm_workspace;
 use sknr_core::threat_intel::{enrich_inventory_with_threat_intel, ThreatIntelOptions};
+use sknr_core::verification::verify_scan_reduction;
+use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -37,6 +42,57 @@ enum Commands {
         /// Override the OpenAI model used for AI priority buckets.
         #[arg(long)]
         openai_model: Option<String>,
+    },
+    /// Build remediation plans for advisory-backed packages.
+    Plan {
+        /// Repository or fixture root containing package.json and package-lock.json.
+        path: PathBuf,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+        /// Override the SQLite threat-intel cache path.
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+        /// Force refresh of OSV and CISA KEV cache entries.
+        #[arg(long)]
+        refresh_cache: bool,
+    },
+    /// Generate or execute a Codex remediation task for one package/service.
+    Fix {
+        /// Repository or fixture root containing package.json and package-lock.json.
+        path: PathBuf,
+        /// Package to remediate.
+        #[arg(long)]
+        package: String,
+        /// Service that should be in scope.
+        #[arg(long)]
+        service: String,
+        /// Actually run `codex exec`; omitted means dry-run only.
+        #[arg(long)]
+        execute: bool,
+        /// Override the SQLite threat-intel cache path.
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+        /// Force refresh of OSV and CISA KEV cache entries.
+        #[arg(long)]
+        refresh_cache: bool,
+    },
+    /// Compare a previous scan snapshot against a fresh scan.
+    Verify {
+        /// Repository or fixture root containing package.json and package-lock.json.
+        path: PathBuf,
+        /// Previous `sknr scan --format json` snapshot.
+        #[arg(long)]
+        before: PathBuf,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+        format: OutputFormat,
+        /// Override the SQLite threat-intel cache path.
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+        /// Force refresh of OSV and CISA KEV cache entries.
+        #[arg(long)]
+        refresh_cache: bool,
     },
 }
 
@@ -106,9 +162,82 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Commands::Plan {
+            path,
+            format,
+            cache_path,
+            refresh_cache,
+        } => {
+            let report = scan_with_threat_intel(&path, cache_path, refresh_cache).await?;
+            let plans = build_remediation_plans(&report).await?;
+            match format {
+                OutputFormat::Text => print_plans(&plans),
+                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&plans)?),
+            }
+        }
+        Commands::Fix {
+            path,
+            package,
+            service,
+            execute,
+            cache_path,
+            refresh_cache,
+        } => {
+            let report = scan_with_threat_intel(&path, cache_path, refresh_cache).await?;
+            let plans = build_remediation_plans(&report).await?;
+            let plan = plans
+                .iter()
+                .find(|plan| {
+                    plan.package == package && plan.services.iter().any(|item| item == &service)
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "no remediation plan found for package `{package}` in service `{service}`"
+                    )
+                })?;
+
+            print_fix_plan(plan, execute);
+            if execute {
+                execute_codex_plan(&std::env::current_dir()?, plan)?;
+            }
+        }
+        Commands::Verify {
+            path,
+            before,
+            format,
+            cache_path,
+            refresh_cache,
+        } => {
+            let before_raw = fs::read_to_string(&before)?;
+            let before_report: ScanReport = serde_json::from_str(&before_raw)?;
+            let after_report = scan_with_threat_intel(&path, cache_path, refresh_cache).await?;
+            let verification = verify_scan_reduction(&before_report, &after_report);
+            match format {
+                OutputFormat::Text => print_verification(&verification),
+                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&verification)?),
+            }
+        }
     }
 
     Ok(())
+}
+
+async fn scan_with_threat_intel(
+    path: &PathBuf,
+    cache_path: Option<PathBuf>,
+    refresh_cache: bool,
+) -> Result<ScanReport, Box<dyn std::error::Error>> {
+    let default_cache_path = path.join(".sknr").join("cache.db");
+    let mut report = scan_npm_workspace(path)?;
+    enrich_inventory_with_threat_intel(
+        &mut report.inventory,
+        &ThreatIntelOptions {
+            cache_path: cache_path.unwrap_or(default_cache_path),
+            refresh_cache,
+        },
+    )
+    .await?;
+    Ok(report)
 }
 
 fn print_text_report(report: &sknr_core::model::ScanReport) {
@@ -197,6 +326,60 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
                 .as_ref()
                 .map(|priority| format!("{:?}", priority.bucket))
                 .unwrap_or_else(|| "none".to_string())
+        );
+    }
+}
+
+fn print_plans(plans: &[RemediationPlan]) {
+    println!("remediation plans: {}", plans.len());
+    for plan in plans {
+        println!();
+        println!(
+            "{}: {} -> {} ({:?})",
+            plan.package, plan.current_version, plan.target_version, plan.upgrade_risk
+        );
+        println!("  services: {}", plan.services.join(", "));
+        println!("  priority: {:?}", plan.priority_bucket);
+        for reason in &plan.reasons {
+            println!("  - {reason}");
+        }
+    }
+}
+
+fn print_fix_plan(plan: &RemediationPlan, execute: bool) {
+    println!(
+        "{}: {} -> {} ({:?})",
+        plan.package, plan.current_version, plan.target_version, plan.upgrade_risk
+    );
+    println!("services: {}", plan.services.join(", "));
+    println!("execute: {execute}");
+    println!();
+    println!("Codex task:");
+    println!("{}", plan.codex_task);
+}
+
+fn print_verification(report: &sknr_core::verification::VerificationReport) {
+    println!("risk reduced: {}", report.risk_reduced);
+    println!(
+        "vulnerable packages: {} -> {}",
+        report.before_vulnerable_packages, report.after_vulnerable_packages
+    );
+    println!(
+        "advisories: {} -> {}",
+        report.before_advisories, report.after_advisories
+    );
+    println!("fixed packages: {}", report.fixed_packages.len());
+    for package in &report.fixed_packages {
+        println!(
+            "  - {}: {} -> {} (advisories {} -> {})",
+            package.package,
+            package.before_version,
+            package
+                .after_version
+                .clone()
+                .unwrap_or_else(|| "not present".to_string()),
+            package.before_advisories,
+            package.after_advisories
         );
     }
 }
