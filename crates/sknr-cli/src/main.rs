@@ -79,6 +79,8 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
             .count()
     );
     println!("services: {}", report.services.len());
+    println!("topology nodes: {}", report.topology.nodes.len());
+    println!("topology edges: {}", report.topology.edges.len());
 
     for service in &report.services {
         println!();
@@ -93,6 +95,7 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
         );
         println!("  package: {}", service.package_name);
         println!("  path: {}", service.path);
+        println!("  internet facing: {}", service.internet_facing);
 
         for dependency in &service.dependencies {
             println!(

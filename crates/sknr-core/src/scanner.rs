@@ -1,6 +1,7 @@
 use crate::model::{
     Dependency, DependencyRelationship, InventoryPackage, PackageUsage, ScanReport, ScannedService,
 };
+use crate::topology::{apply_topology_config, TopologyError};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -32,6 +33,8 @@ pub enum ScanError {
     UnsupportedWorkspacePattern(String),
     #[error("workspace package is missing a name: {0}")]
     MissingPackageName(String),
+    #[error(transparent)]
+    Topology(#[from] TopologyError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,7 +104,6 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
     let workspace_paths = expand_workspaces(&root, root_manifest.workspaces.as_ref())?;
 
     let mut services = Vec::new();
-    let mut service_relationships = BTreeMap::new();
     for service_path in workspace_paths {
         let manifest_path = service_path.join("package.json");
         let service_manifest = read_service_manifest(&manifest_path)?;
@@ -112,17 +114,10 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
             .unwrap_or(&service_manifest.package_name)
             .to_string();
 
-        service_relationships.insert(
-            service_name.clone(),
-            dependencies
-                .iter()
-                .map(|dependency| (dependency.name.clone(), dependency.relationship))
-                .collect::<BTreeMap<_, _>>(),
-        );
-
         services.push(ScannedService {
             name: service_name,
             path: normalize_path(&relative_path(&root, &service_path)),
+            internet_facing: false,
             package_name: service_manifest.package_name,
             manifest_path: normalize_path(&relative_path(&root, &manifest_path)),
             lockfile_path: normalize_path(&relative_path(&root, &lockfile_path)),
@@ -131,9 +126,12 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
     }
 
     services.sort_by(|left, right| left.path.cmp(&right.path));
+    let topology = apply_topology_config(&root, &mut services)?;
+    let service_relationships = build_service_relationships(&services);
 
     Ok(ScanReport {
         root: root.display().to_string(),
+        topology,
         inventory: build_inventory(&package_index, &service_relationships),
         services,
     })
@@ -309,6 +307,24 @@ fn build_inventory(
                 used_by,
                 advisories: Vec::new(),
             })
+        })
+        .collect()
+}
+
+fn build_service_relationships(
+    services: &[ScannedService],
+) -> BTreeMap<String, BTreeMap<String, DependencyRelationship>> {
+    services
+        .iter()
+        .map(|service| {
+            (
+                service.name.clone(),
+                service
+                    .dependencies
+                    .iter()
+                    .map(|dependency| (dependency.name.clone(), dependency.relationship))
+                    .collect(),
+            )
         })
         .collect()
 }
