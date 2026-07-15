@@ -28,6 +28,7 @@ fn scan_fixture_as_text_succeeds() {
     assert!(stdout.contains("vulnerable packages: 0"));
     assert!(stdout.contains("KEV matches: 0"));
     assert!(stdout.contains("reachable packages: 4"));
+    assert!(stdout.contains("prioritized packages: 0"));
     assert!(stdout.contains("api-gateway"));
     assert!(stdout.contains("lodash@4.17.20"));
     assert!(stdout.contains("inventory:"));
@@ -64,6 +65,7 @@ fn scan_fixture_as_json_succeeds() {
         json["inventory"][0]["used_by"][0]["reachability"]["imported"],
         true
     );
+    assert_eq!(json["inventory"][0]["priority"], serde_json::Value::Null);
     assert_eq!(
         json["inventory"][0]["advisories"].as_array().map(Vec::len),
         Some(0)

@@ -22,7 +22,7 @@ docs/                Product and architecture notes
 - [x] service topology graph from `sknr.config.yaml`. ✅
 - [x] OSV + CISA KEV threat-intel cache. ✅
 - [x] lightweight reachability signal. ✅
-- [ ] AI-backed priority buckets.
+- [x] AI-backed priority buckets. ✅
 - [ ] remediation planner.
 - [ ] Codex executor.
 - [ ] verification loop.

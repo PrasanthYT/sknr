@@ -127,6 +127,7 @@ mod tests {
                 relationships: Vec::new(),
                 used_by: Vec::new(),
                 advisories: Vec::new(),
+                priority: None,
             },
             InventoryPackage {
                 name: "axios".to_string(),
@@ -134,6 +135,7 @@ mod tests {
                 relationships: Vec::new(),
                 used_by: Vec::new(),
                 advisories: Vec::new(),
+                priority: None,
             },
         ];
         let response = QueryBatchResponse {

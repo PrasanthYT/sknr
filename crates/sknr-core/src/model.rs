@@ -48,12 +48,14 @@ pub struct InventoryPackage {
     pub relationships: Vec<DependencyRelationship>,
     pub used_by: Vec<PackageUsage>,
     pub advisories: Vec<AdvisorySummary>,
+    pub priority: Option<PriorityAssessment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackageUsage {
     pub service: String,
     pub relationship: DependencyRelationship,
+    pub internet_facing: bool,
     pub reachability: ReachabilitySignal,
 }
 
@@ -95,6 +97,21 @@ pub struct KevMatch {
     pub date_added: String,
     pub due_date: String,
     pub known_ransomware_campaign_use: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PriorityAssessment {
+    pub bucket: PriorityBucket,
+    pub reasons: Vec<String>,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PriorityBucket {
+    FixNow,
+    ThisSprint,
+    Monitor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

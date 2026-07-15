@@ -439,6 +439,7 @@ mod tests {
             relationships: Vec::new(),
             used_by: Vec::new(),
             advisories: Vec::new(),
+            priority: None,
         }];
         let results = vec![OsvResult {
             vulns: vec![OsvVulnerability {
@@ -481,6 +482,7 @@ mod tests {
             relationships: Vec::new(),
             used_by: Vec::new(),
             advisories: Vec::new(),
+            priority: None,
         }];
         let results = vec![OsvResult {
             vulns: vec![OsvVulnerability {

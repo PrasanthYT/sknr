@@ -1,5 +1,6 @@
 pub mod model;
 pub mod osv;
+pub mod priority;
 pub mod reachability;
 pub mod scanner;
 pub mod threat_intel;
