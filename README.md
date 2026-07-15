@@ -15,6 +15,29 @@ fixtures/
 docs/                Product and architecture notes
 ```
 
+## Install and use as a global CLI
+
+Sknr is intended to work like `codex`: install the binary once, enter any npm workspace, then run `sknr` commands from that project directory.
+
+```bash
+cargo install --git https://github.com/PrasanthYT/sknr sknr
+```
+
+Then, inside a project:
+
+```bash
+sknr init
+sknr scan
+sknr dashboard
+sknr report
+```
+
+Every project path defaults to the current directory. You can still pass an explicit path when scanning another repo:
+
+```bash
+sknr scan ../some-other-project
+```
+
 ## Implementation checklist
 
 - [x] Demo npm monorepo fixture. ✅
@@ -45,12 +68,12 @@ These are the next product-facing items to start from now that the core prototyp
 ## Product readiness commands
 
 ```bash
-sknr init .
-sknr scan . --format sarif --fail-on fix-now
-sknr scan . --save-history
-sknr history list .
-sknr sbom . --out bom.json
-sknr fix . --package lodash --service api-gateway --execute --create-pr --repo owner/repo
+sknr init
+sknr scan --format sarif --fail-on fix-now
+sknr scan --save-history
+sknr history list
+sknr sbom --out bom.json
+sknr fix --package lodash --service api-gateway --execute --create-pr --repo owner/repo
 ```
 
 ## Worth confirming before submission

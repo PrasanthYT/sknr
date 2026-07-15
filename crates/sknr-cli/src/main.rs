@@ -44,6 +44,7 @@ enum Commands {
     /// Scan an npm workspace and print dependency inventory.
     Scan {
         /// Repository or fixture root containing package.json and package-lock.json.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
@@ -73,6 +74,7 @@ enum Commands {
     /// Generate an initial sknr.config.yaml from npm workspaces.
     Init {
         /// Repository root containing package.json workspaces.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Overwrite an existing sknr.config.yaml.
         #[arg(long)]
@@ -84,6 +86,7 @@ enum Commands {
     /// Build remediation plans for advisory-backed packages.
     Plan {
         /// Repository or fixture root containing package.json and package-lock.json.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
@@ -98,6 +101,7 @@ enum Commands {
     /// Generate or execute a Codex remediation task for one package/service.
     Fix {
         /// Repository or fixture root containing package.json and package-lock.json.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Package to remediate.
         #[arg(long)]
@@ -142,6 +146,7 @@ enum Commands {
     /// Compare a previous scan snapshot against a fresh scan.
     Verify {
         /// Repository or fixture root containing package.json and package-lock.json.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Previous `sknr scan --format json` snapshot.
         #[arg(long)]
@@ -159,6 +164,7 @@ enum Commands {
     /// Serve the Next.js dashboard API and static assets when built.
     Dashboard {
         /// Repository or fixture root containing package.json and package-lock.json.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Address to bind.
         #[arg(long, default_value = "127.0.0.1:4317")]
@@ -173,6 +179,7 @@ enum Commands {
     /// Generate a self-contained static HTML security report.
     Report {
         /// Repository or fixture root containing package.json and package-lock.json.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Output HTML path.
         #[arg(long, default_value = "security-report.html")]
@@ -192,6 +199,7 @@ enum Commands {
     /// Export a CycloneDX SBOM from the npm inventory.
     Sbom {
         /// Repository or fixture root containing package.json and package-lock.json.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Output SBOM path.
         #[arg(long, default_value = "bom.json")]
@@ -250,6 +258,7 @@ enum HistoryCommands {
     /// List saved scan history entries.
     List {
         /// Repository root.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
@@ -258,6 +267,7 @@ enum HistoryCommands {
     /// Show one saved scan history entry by ID.
     Show {
         /// Repository root.
+        #[arg(default_value = ".")]
         path: PathBuf,
         /// Scan history ID.
         #[arg(long)]
