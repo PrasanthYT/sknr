@@ -287,7 +287,7 @@ fn build_inventory(
     package_index: &BTreeMap<String, LockedPackage>,
     service_relationships: &BTreeMap<
         String,
-        BTreeMap<String, (DependencyRelationship, ReachabilitySignal)>,
+        BTreeMap<String, (DependencyRelationship, ReachabilitySignal, bool)>,
     >,
 ) -> Vec<InventoryPackage> {
     package_index
@@ -298,10 +298,12 @@ fn build_inventory(
             let mut relationships = BTreeSet::new();
 
             for (service, dependencies) in service_relationships {
-                if let Some((relationship, reachability)) = dependencies.get(name) {
+                if let Some((relationship, reachability, internet_facing)) = dependencies.get(name)
+                {
                     used_by.push(PackageUsage {
                         service: service.clone(),
                         relationship: *relationship,
+                        internet_facing: *internet_facing,
                         reachability: reachability.clone(),
                     });
                     relationships.insert(*relationship);
@@ -314,6 +316,7 @@ fn build_inventory(
                 relationships: relationships.into_iter().collect(),
                 used_by,
                 advisories: Vec::new(),
+                priority: None,
             })
         })
         .collect()
@@ -321,7 +324,7 @@ fn build_inventory(
 
 fn build_service_relationships(
     services: &[ScannedService],
-) -> BTreeMap<String, BTreeMap<String, (DependencyRelationship, ReachabilitySignal)>> {
+) -> BTreeMap<String, BTreeMap<String, (DependencyRelationship, ReachabilitySignal, bool)>> {
     services
         .iter()
         .map(|service| {
@@ -333,7 +336,11 @@ fn build_service_relationships(
                     .map(|dependency| {
                         (
                             dependency.name.clone(),
-                            (dependency.relationship, dependency.reachability.clone()),
+                            (
+                                dependency.relationship,
+                                dependency.reachability.clone(),
+                                service.internet_facing,
+                            ),
                         )
                     })
                     .collect(),
@@ -467,6 +474,7 @@ mod tests {
                         imported: true,
                         evidence: Vec::new(),
                     },
+                    true,
                 ),
             )]),
         )]);
@@ -482,6 +490,7 @@ mod tests {
             vec![PackageUsage {
                 service: "api-gateway".to_string(),
                 relationship: DependencyRelationship::Direct,
+                internet_facing: true,
                 reachability: ReachabilitySignal {
                     imported: true,
                     evidence: Vec::new(),
