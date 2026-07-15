@@ -5,6 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "test": "node src/index.js"
+  },
+  "dependencies": {
+    "nanoid": "3.1.30"
   }
 }
-
