@@ -25,12 +25,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { loadDashboard, loadFixDryRun, sknrApiBase } from "@/lib/sknr-api"
+import {
+  loadDashboard,
+  loadFixDryRun,
+  loadHistory,
+  loadHistoryScan,
+  sknrApiBase,
+} from "@/lib/sknr-api"
 import type {
   DashboardPayload,
   InventoryPackage,
   PriorityBucket,
   RemediationPlan,
+  ScanHistoryEntry,
   ScannedService,
 } from "@/lib/sknr-types"
 
@@ -56,14 +63,27 @@ export default function Page() {
   const [selectedPlan, setSelectedPlan] = useState<RemediationPlan | null>(null)
   const [dryRun, setDryRun] = useState<RemediationPlan | null>(null)
   const [dryRunLoading, setDryRunLoading] = useState(false)
+  const [selectedPackageName, setSelectedPackageName] = useState<string | null>(
+    null
+  )
+  const [selectedServiceName, setSelectedServiceName] = useState<string | null>(
+    null
+  )
+  const [history, setHistory] = useState<ScanHistoryEntry[]>([])
 
   async function refresh() {
     setLoading(true)
     setError(null)
     try {
-      const payload = await loadDashboard()
+      const [payload, entries] = await Promise.all([
+        loadDashboard(),
+        loadHistory().catch(() => []),
+      ])
       setData(payload)
+      setHistory(entries)
       setSelectedPlan(payload.plans[0] ?? null)
+      setSelectedPackageName(null)
+      setSelectedServiceName(null)
       setDryRun(null)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "failed to load dashboard")
@@ -87,10 +107,11 @@ export default function Page() {
   useEffect(() => {
     let cancelled = false
 
-    loadDashboard()
-      .then((payload) => {
+    Promise.all([loadDashboard(), loadHistory().catch(() => [])])
+      .then(([payload, entries]) => {
         if (cancelled) return
         setData(payload)
+        setHistory(entries)
         setSelectedPlan(payload.plans[0] ?? null)
       })
       .catch((cause) => {
@@ -123,6 +144,34 @@ export default function Page() {
 
   const externalEdges = data?.scan.topology.edges ?? []
   const activePlan = dryRun ?? selectedPlan
+  const selectedPackage =
+    vulnerablePackages.find((item) => item.name === selectedPackageName) ??
+    vulnerablePackages[0] ??
+    null
+  const selectedService =
+    data?.scan.services.find((service) => service.name === selectedServiceName) ??
+    data?.scan.services[0] ??
+    null
+
+  async function loadSavedScan(entry: ScanHistoryEntry) {
+    setLoading(true)
+    setError(null)
+    try {
+      const scan = await loadHistoryScan(entry.id)
+      setData({
+        summary: entry.summary,
+        scan,
+        plans: data?.plans ?? [],
+        latest_history: entry,
+      })
+      setSelectedPackageName(null)
+      setSelectedServiceName(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "failed to load history")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <main className="min-h-svh bg-muted/30">
@@ -196,17 +245,30 @@ export default function Page() {
 
         <SummaryGrid data={data} loading={loading} />
 
+        <HistorySelector
+          entries={history}
+          latest={data?.latest_history ?? null}
+          onSelect={(entry) => void loadSavedScan(entry)}
+        />
+
         <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
           <TopologyCard
             services={data?.scan.services ?? []}
             edgeCount={externalEdges.length}
             loading={loading}
+            selectedService={selectedService}
+            onSelect={(service) => setSelectedServiceName(service.name)}
           />
           <PriorityCard data={data} loading={loading} />
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-          <FindingsCard packages={vulnerablePackages} loading={loading} />
+          <FindingsCard
+            packages={vulnerablePackages}
+            loading={loading}
+            selectedPackage={selectedPackage}
+            onSelect={(item) => setSelectedPackageName(item.name)}
+          />
           <PlannerCard
             plans={data?.plans ?? []}
             selectedPlan={selectedPlan}
@@ -219,6 +281,11 @@ export default function Page() {
             }}
             onPreview={previewDryRun}
           />
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-2">
+          <PackageDetailCard item={selectedPackage} loading={loading} />
+          <ServiceDetailCard service={selectedService} loading={loading} />
         </div>
       </div>
     </main>
@@ -292,14 +359,61 @@ function SummaryGrid({
   )
 }
 
+function HistorySelector({
+  entries,
+  latest,
+  onSelect,
+}: {
+  entries: ScanHistoryEntry[]
+  latest: ScanHistoryEntry | null
+  onSelect: (entry: ScanHistoryEntry) => void
+}) {
+  if (!latest && entries.length === 0) {
+    return null
+  }
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5 text-sm">
+        <div>
+          <div className="font-medium">Saved scan history</div>
+          <div className="text-muted-foreground">
+            {latest
+              ? `Latest #${latest.id} · ${new Date(
+                  latest.created_at * 1000
+                ).toLocaleString()}`
+              : "No latest scan metadata in the dashboard payload"}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {entries.slice(0, 5).map((entry) => (
+            <Button
+              key={entry.id}
+              variant="outline"
+              size="sm"
+              onClick={() => onSelect(entry)}
+            >
+              Load #{entry.id}
+            </Button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function TopologyCard({
   services,
   edgeCount,
   loading,
+  selectedService,
+  onSelect,
 }: {
   services: ScannedService[]
   edgeCount: number
   loading: boolean
+  selectedService: ScannedService | null
+  onSelect: (service: ScannedService) => void
 }) {
   return (
     <Card>
@@ -326,7 +440,15 @@ function TopologyCard({
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               {services.map((service) => (
-                <div key={service.name} className="rounded-xl border p-4">
+                <button
+                  key={service.name}
+                  className={`rounded-xl border p-4 text-left transition hover:bg-muted/60 ${
+                    selectedService?.name === service.name
+                      ? "border-primary bg-muted/50"
+                      : "bg-background"
+                  }`}
+                  onClick={() => onSelect(service)}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="font-medium">{service.name}</div>
@@ -342,7 +464,7 @@ function TopologyCard({
                     <span>{service.package_name}</span>
                     <span>{service.dependencies.length} deps</span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -412,9 +534,13 @@ function PriorityCard({
 function FindingsCard({
   packages,
   loading,
+  selectedPackage,
+  onSelect,
 }: {
   packages: InventoryPackage[]
   loading: boolean
+  selectedPackage: InventoryPackage | null
+  onSelect: (item: InventoryPackage) => void
 }) {
   return (
     <Card>
@@ -445,7 +571,13 @@ function FindingsCard({
               </thead>
               <tbody>
                 {packages.map((item) => (
-                  <tr key={`${item.name}@${item.version}`} className="border-t">
+                  <tr
+                    key={`${item.name}@${item.version}`}
+                    className={`cursor-pointer border-t hover:bg-muted/50 ${
+                      selectedPackage?.name === item.name ? "bg-muted/60" : ""
+                    }`}
+                    onClick={() => onSelect(item)}
+                  >
                     <td className="px-4 py-3">
                       <div className="font-medium">{item.name}</div>
                       <div className="font-mono text-xs text-muted-foreground">
@@ -485,6 +617,128 @@ function FindingsCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function PackageDetailCard({
+  item,
+  loading,
+}: {
+  item: InventoryPackage | null
+  loading: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Package detail</CardTitle>
+        <CardDescription>
+          Advisory, KEV, reachability, service, and priority evidence.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <SkeletonRows count={4} />
+        ) : !item ? (
+          <EmptyState message="Select a vulnerable package to inspect." />
+        ) : (
+          <div className="space-y-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{item.name}</span>
+              <Badge tone="muted">{item.version}</Badge>
+              {item.priority ? (
+                <Badge tone={priorityTones[item.priority.bucket]}>
+                  {priorityLabels[item.priority.bucket]}
+                </Badge>
+              ) : (
+                <Badge tone="muted">Unprioritized</Badge>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <DetailBox label="Services" value={item.used_by.map((usage) => usage.service).join(", ") || "—"} />
+              <DetailBox label="Reachability" value={isReachable(item) ? "import evidence found" : "no import evidence"} />
+              <DetailBox label="Advisories" value={item.advisories.map((advisory) => advisory.id).join(", ")} />
+              <DetailBox label="CVE aliases" value={item.advisories.flatMap((advisory) => advisory.cve_aliases).join(", ") || "none"} />
+            </div>
+            {item.advisories.some((advisory) => advisory.kev_match) ? (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
+                <div className="font-medium text-red-600 dark:text-red-300">
+                  CISA KEV match
+                </div>
+                <div className="mt-1 text-muted-foreground">
+                  {item.advisories
+                    .map((advisory) => advisory.kev_match?.vulnerability_name)
+                    .filter(Boolean)
+                    .join(", ")}
+                </div>
+              </div>
+            ) : null}
+            {item.priority?.reasons.length ? (
+              <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                {item.priority.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ServiceDetailCard({
+  service,
+  loading,
+}: {
+  service: ScannedService | null
+  loading: boolean
+}) {
+  const direct = service?.dependencies.filter((dep) => dep.relationship === "direct").length ?? 0
+  const transitive = service?.dependencies.filter((dep) => dep.relationship === "transitive").length ?? 0
+  const reachable = service?.dependencies.filter((dep) => dep.reachability.imported).length ?? 0
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Service detail</CardTitle>
+        <CardDescription>
+          Ownership, exposure, and dependency density for the selected service.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <SkeletonRows count={4} />
+        ) : !service ? (
+          <EmptyState message="Select a service to inspect." />
+        ) : (
+          <div className="space-y-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{service.name}</span>
+              <Badge tone={service.internet_facing ? "danger" : "muted"}>
+                {service.internet_facing ? "internet-facing" : "internal"}
+              </Badge>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <DetailBox label="Path" value={service.path} />
+              <DetailBox label="Package" value={service.package_name} />
+              <DetailBox label="Direct dependencies" value={String(direct)} />
+              <DetailBox label="Transitive dependencies" value={String(transitive)} />
+              <DetailBox label="Reachable imports" value={String(reachable)} />
+              <DetailBox label="Total dependencies" value={String(service.dependencies.length)} />
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function DetailBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border bg-background p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words font-medium">{value}</div>
+    </div>
   )
 }
 

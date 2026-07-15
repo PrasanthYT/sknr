@@ -8,6 +8,7 @@ pub struct DashboardData {
     pub summary: DashboardSummary,
     pub scan: ScanReport,
     pub plans: Vec<RemediationPlan>,
+    pub latest_history: Option<crate::history::ScanHistoryEntry>,
 }
 
 pub fn build_dashboard_data(scan: ScanReport, plans: Vec<RemediationPlan>) -> DashboardData {
@@ -15,6 +16,20 @@ pub fn build_dashboard_data(scan: ScanReport, plans: Vec<RemediationPlan>) -> Da
         summary: build_dashboard_summary(&scan, &plans),
         scan,
         plans,
+        latest_history: None,
+    }
+}
+
+pub fn build_dashboard_data_with_history(
+    scan: ScanReport,
+    plans: Vec<RemediationPlan>,
+    latest_history: Option<crate::history::ScanHistoryEntry>,
+) -> DashboardData {
+    DashboardData {
+        summary: build_dashboard_summary(&scan, &plans),
+        scan,
+        plans,
+        latest_history,
     }
 }
 

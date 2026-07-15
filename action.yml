@@ -1,0 +1,27 @@
+name: Sknr
+description: Run Sknr dependency risk scanning in GitHub Actions.
+inputs:
+  path:
+    description: Repository path to scan.
+    required: false
+    default: "."
+  format:
+    description: Output format: text, json, or sarif.
+    required: false
+    default: "sarif"
+  fail-on:
+    description: Optional threshold: fix-now, this-sprint, monitor, or any.
+    required: false
+    default: ""
+  ai-prioritize:
+    description: Set true to enable OpenAI-backed priority buckets.
+    required: false
+    default: "false"
+  openai-model:
+    description: OpenAI model override.
+    required: false
+    default: ""
+runs:
+  using: docker
+  image: Dockerfile
+  entrypoint: sknr-action

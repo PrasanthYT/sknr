@@ -1,6 +1,8 @@
 import type {
   DashboardPayload,
   RemediationPlan,
+  ScanHistoryEntry,
+  ScanReport,
 } from "@/lib/sknr-types"
 
 const DEFAULT_API_BASE = "http://127.0.0.1:4317"
@@ -42,4 +44,12 @@ export async function loadFixDryRun(
   }
 
   return response.json() as Promise<RemediationPlan>
+}
+
+export async function loadHistory(): Promise<ScanHistoryEntry[]> {
+  return getJson<ScanHistoryEntry[]>("/api/history")
+}
+
+export async function loadHistoryScan(id: number): Promise<ScanReport> {
+  return getJson<ScanReport>(`/api/history/scan?id=${id}`)
 }

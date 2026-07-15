@@ -122,4 +122,12 @@ export type DashboardPayload = {
   summary: DashboardSummary
   scan: ScanReport
   plans: RemediationPlan[]
+  latest_history: ScanHistoryEntry | null
+}
+
+export type ScanHistoryEntry = {
+  id: number
+  root: string
+  created_at: number
+  summary: DashboardSummary
 }
