@@ -1,4 +1,5 @@
 target/
+Cargo.lock
 node_modules/
 dist/
 build/
@@ -11,4 +12,3 @@ build/
 *.sqlite
 *.sqlite3
 security-report.html
-
