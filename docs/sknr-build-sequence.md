@@ -51,12 +51,12 @@ Each step lists what it covers, the tech stack, and what it depends on. The orde
 
 ### 10. Dashboard (web UI)
 **Covers:** Wraps everything above in a browser UI — results, priority buckets, the attack-path graph as real rendered nodes and edges, and a live log view during remediation. Built after the CLI pipeline works end to end, so there's real data to render instead of a guessed-at shape.
-**Tech stack:** a small Rust HTTP/WebSocket server (`axum`) exposing the SQLite-backed state; React + Vite frontend; React Flow for the attack-path graph; Tailwind for styling; WebSocket for streaming Codex's live logs from step 8 into the browser.
+**Tech stack:** a small Rust HTTP server (`axum`) exposing scan, summary, plan, and dry-run endpoints; Next.js frontend; shadcn/ui-style components; Tailwind for styling; static export support for serving the built dashboard from the same `sknr dashboard` command.
 **Depends on:** steps 2–9 producing real data.
 
 ### 11. HTML security report
 **Covers:** A static, shareable export of one scan — graph, priorities, remediation history — opening in any browser with no server running.
-**Tech stack:** server-side templating (`Tera`) reusing the dashboard's data layer, output as one self-contained HTML file with inlined CSS.
+**Tech stack:** Rust renderer reusing the dashboard's shared `DashboardData`, output as one self-contained HTML file with inlined CSS and embedded JSON.
 **Depends on:** the dashboard's data layer (step 10).
 
 ---

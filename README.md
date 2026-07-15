@@ -9,7 +9,7 @@ crates/
   sknr-core/        Rust domain models and scanner logic
   sknr-cli/         CLI entrypoint
 web/
-  dashboard/         Future React/Vite dashboard
+  dashboard/         Next.js + shadcn/ui security dashboard
 fixtures/
   demo-monorepo/     Vulnerable npm demo repo scanned by Sknr
 docs/                Product and architecture notes
@@ -23,8 +23,8 @@ docs/                Product and architecture notes
 - [x] OSV + CISA KEV threat-intel cache. ✅
 - [x] lightweight reachability signal. ✅
 - [x] AI-backed priority buckets. ✅
-- [ ] remediation planner.
-- [ ] Codex executor.
-- [ ] verification loop.
-- [ ] dashboard.
-- [ ] static HTML report.
+- [x] remediation planner. ✅
+- [x] Codex executor. ✅
+- [x] verification loop. ✅
+- [x] dashboard.
+- [x] static HTML report.
