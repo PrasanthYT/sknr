@@ -44,6 +44,8 @@ struct OsvResult {
 struct OsvVulnerability {
     id: String,
     modified: Option<String>,
+    #[serde(default)]
+    aliases: Vec<String>,
 }
 
 pub async fn enrich_inventory_with_osv(inventory: &mut [InventoryPackage]) -> Result<(), OsvError> {
@@ -92,8 +94,16 @@ fn apply_query_batch_response(
             .vulns
             .into_iter()
             .map(|vuln| AdvisorySummary {
+                cve_aliases: vuln
+                    .aliases
+                    .iter()
+                    .filter(|alias| alias.starts_with("CVE-"))
+                    .cloned()
+                    .collect(),
                 id: vuln.id,
                 modified: vuln.modified,
+                aliases: vuln.aliases,
+                kev_match: None,
             })
             .collect();
         package
@@ -132,12 +142,14 @@ mod tests {
                     vulns: vec![OsvVulnerability {
                         id: "GHSA-lodash".to_string(),
                         modified: Some("2024-01-01T00:00:00Z".to_string()),
+                        aliases: vec!["CVE-2021-0001".to_string()],
                     }],
                 },
                 OsvResult {
                     vulns: vec![OsvVulnerability {
                         id: "GHSA-axios".to_string(),
                         modified: None,
+                        aliases: Vec::new(),
                     }],
                 },
             ],

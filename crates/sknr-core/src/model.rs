@@ -59,6 +59,18 @@ pub struct PackageUsage {
 pub struct AdvisorySummary {
     pub id: String,
     pub modified: Option<String>,
+    pub aliases: Vec<String>,
+    pub cve_aliases: Vec<String>,
+    pub kev_match: Option<KevMatch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct KevMatch {
+    pub cve_id: String,
+    pub vulnerability_name: String,
+    pub date_added: String,
+    pub due_date: String,
+    pub known_ransomware_campaign_use: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
