@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use sknr_core::priority::{prioritize_inventory_with_openai, AiPriorityOptions};
 use sknr_core::scanner::scan_npm_workspace;
 use sknr_core::threat_intel::{enrich_inventory_with_threat_intel, ThreatIntelOptions};
 use std::path::PathBuf;
@@ -30,6 +31,12 @@ enum Commands {
         /// Force refresh of OSV and CISA KEV cache entries.
         #[arg(long)]
         refresh_cache: bool,
+        /// Ask OpenAI to assign priority buckets to advisory-backed findings.
+        #[arg(long)]
+        ai_prioritize: bool,
+        /// Override the OpenAI model used for AI priority buckets.
+        #[arg(long)]
+        openai_model: Option<String>,
     },
 }
 
@@ -57,6 +64,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             offline,
             cache_path,
             refresh_cache,
+            ai_prioritize,
+            openai_model,
         } => {
             let default_cache_path = path.join(".sknr").join("cache.db");
             let mut report = scan_npm_workspace(&path)?;
@@ -66,6 +75,25 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     &ThreatIntelOptions {
                         cache_path: cache_path.unwrap_or(default_cache_path),
                         refresh_cache,
+                    },
+                )
+                .await?;
+            }
+            if ai_prioritize
+                && report
+                    .inventory
+                    .iter()
+                    .any(|package| !package.advisories.is_empty())
+            {
+                let api_key = std::env::var("OPENAI_API_KEY")
+                    .map_err(|_| "OPENAI_API_KEY is required when --ai-prioritize has findings")?;
+                prioritize_inventory_with_openai(
+                    &mut report.inventory,
+                    &AiPriorityOptions {
+                        api_key,
+                        model: openai_model
+                            .or_else(|| std::env::var("SKNR_OPENAI_MODEL").ok())
+                            .unwrap_or_else(|| "gpt-5.6".to_string()),
                     },
                 )
                 .await?;
@@ -116,6 +144,14 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
             })
             .count()
     );
+    println!(
+        "prioritized packages: {}",
+        report
+            .inventory
+            .iter()
+            .filter(|package| package.priority.is_some())
+            .count()
+    );
     println!("services: {}", report.services.len());
     println!("topology nodes: {}", report.topology.nodes.len());
     println!("topology edges: {}", report.topology.edges.len());
@@ -147,7 +183,7 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
     println!("inventory:");
     for package in &report.inventory {
         println!(
-            "  - {}@{} (used by {} services, {} advisories, reachable: {})",
+            "  - {}@{} (used by {} services, {} advisories, reachable: {}, priority: {})",
             package.name,
             package.version,
             package.used_by.len(),
@@ -155,7 +191,12 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
             package
                 .used_by
                 .iter()
-                .any(|usage| usage.reachability.imported)
+                .any(|usage| usage.reachability.imported),
+            package
+                .priority
+                .as_ref()
+                .map(|priority| format!("{:?}", priority.bucket))
+                .unwrap_or_else(|| "none".to_string())
         );
     }
 }
