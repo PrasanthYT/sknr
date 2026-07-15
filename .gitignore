@@ -1,0 +1,14 @@
+target/
+node_modules/
+dist/
+build/
+.turbo/
+.vite/
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+security-report.html
+

@@ -1,0 +1,14 @@
+services:
+  - name: api-gateway
+    path: apps/api-gateway
+    internet_facing: true
+  - name: auth-service
+    path: apps/auth-service
+    internet_facing: true
+  - name: user-service
+    path: apps/user-service
+    internet_facing: false
+  - name: dashboard
+    path: apps/dashboard
+    internet_facing: true
+

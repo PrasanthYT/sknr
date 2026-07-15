@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/sknr-core",
+  "crates/sknr-cli",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/sknr/sknr"
+
