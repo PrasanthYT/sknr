@@ -180,7 +180,7 @@ fn expand_workspaces(
     let patterns = match workspaces {
         Some(Workspaces::Array(patterns)) => patterns,
         Some(Workspaces::Object { packages }) => packages,
-        None => return Err(ScanError::MissingWorkspaces),
+        None => return Ok(vec![root.to_path_buf()]),
     };
 
     let mut paths = BTreeSet::new();
@@ -354,7 +354,12 @@ fn relative_path(root: &Path, path: &Path) -> PathBuf {
 }
 
 fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    if normalized.is_empty() {
+        ".".to_string()
+    } else {
+        normalized
+    }
 }
 
 #[cfg(test)]
@@ -497,5 +502,42 @@ mod tests {
                 },
             }]
         );
+    }
+
+    #[test]
+    fn scans_single_package_repo_without_workspaces() {
+        let root = std::env::temp_dir().join(format!("sknr-scan-single-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"name":"ezhupira","dependencies":{"lodash":"4.17.20"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("package-lock.json"),
+            r#"{
+              "packages": {
+                "": {"dependencies": {"lodash": "4.17.20"}},
+                "node_modules/lodash": {"version": "4.17.20"}
+              }
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("sknr.config.yaml"),
+            "services:\n  - name: ezhupira\n    path: .\n    internet_facing: false\n",
+        )
+        .unwrap();
+
+        let report = scan_npm_workspace(&root).unwrap();
+
+        assert_eq!(report.services.len(), 1);
+        assert_eq!(report.services[0].path, ".");
+        assert_eq!(report.services[0].name, "ezhupira");
+        assert_eq!(report.inventory.len(), 1);
+        assert_eq!(report.inventory[0].name, "lodash");
+
+        let _ = fs::remove_dir_all(root);
     }
 }

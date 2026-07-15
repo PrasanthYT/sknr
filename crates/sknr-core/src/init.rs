@@ -94,7 +94,7 @@ pub fn generate_sknr_config(root: impl AsRef<Path>, force: bool) -> Result<InitS
             .ok_or_else(|| InitError::MissingPackageName(manifest_path.display().to_string()))?;
         let path = normalize_path(&relative_path(root, &service_path));
         services.push(GeneratedService {
-            name: service_name(&name, &service_path),
+            name: service_name(&name, root, &service_path),
             path,
             internet_facing: false,
         });
@@ -137,7 +137,7 @@ fn expand_workspaces(
     let patterns = match workspaces {
         Some(Workspaces::Array(patterns)) => patterns,
         Some(Workspaces::Object { packages }) => packages,
-        None => return Err(InitError::MissingWorkspaces),
+        None => return Ok(vec![root.to_path_buf()]),
     };
 
     let mut paths = BTreeSet::new();
@@ -171,7 +171,11 @@ fn expand_workspaces(
     Ok(paths.into_iter().collect())
 }
 
-fn service_name(package_name: &str, service_path: &Path) -> String {
+fn service_name(package_name: &str, root: &Path, service_path: &Path) -> String {
+    if service_path == root {
+        return package_name.to_string();
+    }
+
     service_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -184,8 +188,40 @@ fn relative_path(root: &Path, path: &Path) -> PathBuf {
 }
 
 fn normalize_path(path: &Path) -> String {
-    path.components()
+    let normalized = path
+        .components()
         .map(|component| component.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
-        .join("/")
+        .join("/");
+    if normalized.is_empty() {
+        ".".to_string()
+    } else {
+        normalized
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generates_config_for_single_package_repo() {
+        let root = std::env::temp_dir().join(format!("sknr-init-single-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"name":"ezhupira","dependencies":{"lodash":"4.17.20"}}"#,
+        )
+        .unwrap();
+
+        let summary = generate_sknr_config(&root, false).unwrap();
+
+        assert_eq!(summary.services.len(), 1);
+        assert_eq!(summary.services[0].name, "ezhupira");
+        assert_eq!(summary.services[0].path, ".");
+        assert!(root.join("sknr.config.yaml").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
