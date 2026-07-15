@@ -15,17 +15,16 @@ fixtures/
 docs/                Product and architecture notes
 ```
 
-## Planned build order
+## Implementation checklist
 
-1. Demo npm monorepo fixture.
-2. npm dependency scanner.
-3. service topology graph from `sknr.config.yaml`.
-4. OSV + CISA KEV threat-intel cache.
-5. lightweight reachability signal.
-6. AI-backed priority buckets.
-7. remediation planner.
-8. Codex executor.
-9. verification loop.
-10. dashboard.
-11. static HTML report.
-
+- [x] Demo npm monorepo fixture. ✅
+- [x] npm dependency scanner. ✅
+- [x] service topology graph from `sknr.config.yaml`. ✅
+- [x] OSV + CISA KEV threat-intel cache. ✅
+- [ ] lightweight reachability signal.
+- [ ] AI-backed priority buckets.
+- [ ] remediation planner.
+- [ ] Codex executor.
+- [ ] verification loop.
+- [ ] dashboard.
+- [ ] static HTML report.

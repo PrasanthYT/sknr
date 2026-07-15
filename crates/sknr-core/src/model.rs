@@ -25,6 +25,7 @@ pub enum DependencyRelationship {
 pub struct ScannedService {
     pub name: String,
     pub path: String,
+    pub internet_facing: bool,
     pub package_name: String,
     pub manifest_path: String,
     pub lockfile_path: String,
@@ -34,6 +35,7 @@ pub struct ScannedService {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ScanReport {
     pub root: String,
+    pub topology: ServiceTopology,
     pub inventory: Vec<InventoryPackage>,
     pub services: Vec<ScannedService>,
 }
@@ -57,4 +59,51 @@ pub struct PackageUsage {
 pub struct AdvisorySummary {
     pub id: String,
     pub modified: Option<String>,
+    pub aliases: Vec<String>,
+    pub cve_aliases: Vec<String>,
+    pub kev_match: Option<KevMatch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct KevMatch {
+    pub cve_id: String,
+    pub vulnerability_name: String,
+    pub date_added: String,
+    pub due_date: String,
+    pub known_ransomware_campaign_use: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ServiceTopology {
+    pub nodes: Vec<TopologyNode>,
+    pub edges: Vec<TopologyEdge>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TopologyNode {
+    pub id: String,
+    pub label: String,
+    pub node_type: TopologyNodeType,
+    pub path: Option<String>,
+    pub internet_facing: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TopologyNodeType {
+    External,
+    Service,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TopologyEdge {
+    pub from: String,
+    pub to: String,
+    pub relationship: TopologyEdgeRelationship,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TopologyEdgeRelationship {
+    InternetExposure,
 }

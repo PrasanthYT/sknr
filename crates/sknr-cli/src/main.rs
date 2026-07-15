@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
-use sknr_core::osv::enrich_inventory_with_osv;
 use sknr_core::scanner::scan_npm_workspace;
+use sknr_core::threat_intel::{enrich_inventory_with_threat_intel, ThreatIntelOptions};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -24,6 +24,12 @@ enum Commands {
         /// Skip OSV advisory lookups and emit dependency inventory only.
         #[arg(long)]
         offline: bool,
+        /// Override the SQLite threat-intel cache path.
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+        /// Force refresh of OSV and CISA KEV cache entries.
+        #[arg(long)]
+        refresh_cache: bool,
     },
 }
 
@@ -49,10 +55,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             path,
             format,
             offline,
+            cache_path,
+            refresh_cache,
         } => {
-            let mut report = scan_npm_workspace(path)?;
+            let default_cache_path = path.join(".sknr").join("cache.db");
+            let mut report = scan_npm_workspace(&path)?;
             if !offline {
-                enrich_inventory_with_osv(&mut report.inventory).await?;
+                enrich_inventory_with_threat_intel(
+                    &mut report.inventory,
+                    &ThreatIntelOptions {
+                        cache_path: cache_path.unwrap_or(default_cache_path),
+                        refresh_cache,
+                    },
+                )
+                .await?;
             }
 
             match format {
@@ -78,7 +94,18 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
             .filter(|package| !package.advisories.is_empty())
             .count()
     );
+    println!(
+        "KEV matches: {}",
+        report
+            .inventory
+            .iter()
+            .flat_map(|package| package.advisories.iter())
+            .filter(|advisory| advisory.kev_match.is_some())
+            .count()
+    );
     println!("services: {}", report.services.len());
+    println!("topology nodes: {}", report.topology.nodes.len());
+    println!("topology edges: {}", report.topology.edges.len());
 
     for service in &report.services {
         println!();
@@ -93,6 +120,7 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
         );
         println!("  package: {}", service.package_name);
         println!("  path: {}", service.path);
+        println!("  internet facing: {}", service.internet_facing);
 
         for dependency in &service.dependencies {
             println!(
