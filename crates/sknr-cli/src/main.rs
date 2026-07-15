@@ -1,13 +1,25 @@
+use axum::extract::State;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use clap::{Parser, ValueEnum};
+use serde::Deserialize;
 use sknr_core::executor::execute_codex_plan;
 use sknr_core::model::ScanReport;
 use sknr_core::priority::{prioritize_inventory_with_openai, AiPriorityOptions};
 use sknr_core::remediation::{build_remediation_plans, RemediationPlan};
+use sknr_core::report::{build_dashboard_data, render_static_report, DashboardData};
 use sknr_core::scanner::scan_npm_workspace;
+use sknr_core::summary::DashboardSummary;
 use sknr_core::threat_intel::{enrich_inventory_with_threat_intel, ThreatIntelOptions};
 use sknr_core::verification::verify_scan_reduction;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
+
+type AppError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug, Parser)]
 #[command(name = "sknr")]
@@ -94,6 +106,34 @@ enum Commands {
         #[arg(long)]
         refresh_cache: bool,
     },
+    /// Serve the Next.js dashboard API and static assets when built.
+    Dashboard {
+        /// Repository or fixture root containing package.json and package-lock.json.
+        path: PathBuf,
+        /// Address to bind.
+        #[arg(long, default_value = "127.0.0.1:4317")]
+        addr: SocketAddr,
+        /// Override the SQLite threat-intel cache path.
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+        /// Force refresh of OSV and CISA KEV cache entries.
+        #[arg(long)]
+        refresh_cache: bool,
+    },
+    /// Generate a self-contained static HTML security report.
+    Report {
+        /// Repository or fixture root containing package.json and package-lock.json.
+        path: PathBuf,
+        /// Output HTML path.
+        #[arg(long, default_value = "security-report.html")]
+        out: PathBuf,
+        /// Override the SQLite threat-intel cache path.
+        #[arg(long)]
+        cache_path: Option<PathBuf>,
+        /// Force refresh of OSV and CISA KEV cache entries.
+        #[arg(long)]
+        refresh_cache: bool,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -110,7 +150,7 @@ async fn main() {
     }
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run() -> Result<(), AppError> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -141,8 +181,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     .iter()
                     .any(|package| !package.advisories.is_empty())
             {
-                let api_key = std::env::var("OPENAI_API_KEY")
-                    .map_err(|_| "OPENAI_API_KEY is required when --ai-prioritize has findings")?;
+                let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "OPENAI_API_KEY is required when --ai-prioritize has findings",
+                    )
+                })?;
                 prioritize_inventory_with_openai(
                     &mut report.inventory,
                     &AiPriorityOptions {
@@ -217,16 +261,218 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&verification)?),
             }
         }
+        Commands::Dashboard {
+            path,
+            addr,
+            cache_path,
+            refresh_cache,
+        } => {
+            serve_dashboard(path, cache_path, refresh_cache, addr).await?;
+        }
+        Commands::Report {
+            path,
+            out,
+            cache_path,
+            refresh_cache,
+        } => {
+            let data = dashboard_data(&path, cache_path, refresh_cache).await?;
+            let html = render_static_report(&data)?;
+            if let Some(parent) = out.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent)?;
+                }
+            }
+            fs::write(&out, html)?;
+            println!("wrote {}", out.display());
+        }
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct DashboardState {
+    path: PathBuf,
+    cache_path: Option<PathBuf>,
+    refresh_cache: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct FixDryRunRequest {
+    package: String,
+    service: String,
+}
+
+async fn serve_dashboard(
+    path: PathBuf,
+    cache_path: Option<PathBuf>,
+    refresh_cache: bool,
+    addr: SocketAddr,
+) -> Result<(), AppError> {
+    let state = Arc::new(DashboardState {
+        path,
+        cache_path,
+        refresh_cache,
+    });
+
+    let app = Router::new()
+        .route("/", get(dashboard_root))
+        .route("/api/dashboard", get(api_dashboard))
+        .route("/api/scan", get(api_scan))
+        .route("/api/plans", get(api_plans))
+        .route("/api/summary", get(api_summary))
+        .route("/api/fix/dry-run", post(api_fix_dry_run))
+        .layer(CorsLayer::permissive())
+        .with_state(state);
+    let static_dir = std::env::current_dir()?
+        .join("web")
+        .join("dashboard")
+        .join("out");
+    let app = if static_dir.exists() {
+        app.fallback_service(ServeDir::new(static_dir).append_index_html_on_directories(true))
+    } else {
+        app
+    };
+
+    println!("Sknr dashboard API listening on http://{addr}");
+    println!("Next.js dashboard can use NEXT_PUBLIC_SKNR_API_BASE=http://{addr}");
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+async fn dashboard_root() -> &'static str {
+    "Sknr dashboard API is running. Use /api/dashboard, /api/summary, /api/scan, /api/plans, or run the Next.js app in web/dashboard/."
+}
+
+async fn api_dashboard(
+    State(state): State<Arc<DashboardState>>,
+) -> Result<Json<DashboardData>, (axum::http::StatusCode, String)> {
+    let state = (*state).clone();
+    run_dashboard_blocking(move || {
+        block_on_dashboard(async move {
+            dashboard_data(&state.path, state.cache_path, state.refresh_cache).await
+        })
+    })
+    .await
+    .map(Json)
+}
+
+async fn api_scan(
+    State(state): State<Arc<DashboardState>>,
+) -> Result<Json<ScanReport>, (axum::http::StatusCode, String)> {
+    let state = (*state).clone();
+    run_dashboard_blocking(move || {
+        block_on_dashboard(async move {
+            scan_with_threat_intel(&state.path, state.cache_path, state.refresh_cache).await
+        })
+    })
+    .await
+    .map(Json)
+}
+
+async fn api_plans(
+    State(state): State<Arc<DashboardState>>,
+) -> Result<Json<Vec<RemediationPlan>>, (axum::http::StatusCode, String)> {
+    let state = (*state).clone();
+    run_dashboard_blocking(move || {
+        block_on_dashboard(async move {
+            let report =
+                scan_with_threat_intel(&state.path, state.cache_path, state.refresh_cache).await?;
+            let plans = build_remediation_plans(&report).await?;
+            Ok::<_, AppError>(plans)
+        })
+    })
+    .await
+    .map(Json)
+}
+
+async fn api_summary(
+    State(state): State<Arc<DashboardState>>,
+) -> Result<Json<DashboardSummary>, (axum::http::StatusCode, String)> {
+    let state = (*state).clone();
+    run_dashboard_blocking(move || {
+        block_on_dashboard(async move {
+            let data = dashboard_data(&state.path, state.cache_path, state.refresh_cache).await?;
+            Ok::<_, AppError>(data.summary)
+        })
+    })
+    .await
+    .map(Json)
+}
+
+async fn api_fix_dry_run(
+    State(state): State<Arc<DashboardState>>,
+    Json(request): Json<FixDryRunRequest>,
+) -> Result<Json<RemediationPlan>, (axum::http::StatusCode, String)> {
+    let state = (*state).clone();
+    run_dashboard_blocking(move || {
+        block_on_dashboard(async move {
+            let report =
+                scan_with_threat_intel(&state.path, state.cache_path, state.refresh_cache).await?;
+            let plans = build_remediation_plans(&report).await?;
+            let plan = plans
+                .into_iter()
+                .find(|plan| {
+                    plan.package == request.package
+                        && plan
+                            .services
+                            .iter()
+                            .any(|service| service == &request.service)
+                })
+                .ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::NotFound, "no remediation plan found")
+                })?;
+            Ok::<_, AppError>(plan)
+        })
+    })
+    .await
+    .map(Json)
+}
+
+async fn run_dashboard_blocking<T, F>(work: F) -> Result<T, (axum::http::StatusCode, String)>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                error.to_string(),
+            )
+        })?
+        .map_err(|error| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, error))
+}
+
+fn block_on_dashboard<T, F>(future: F) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, AppError>>,
+{
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())?
+        .block_on(future)
+        .map_err(|error| error.to_string())
+}
+
+async fn dashboard_data(
+    path: &PathBuf,
+    cache_path: Option<PathBuf>,
+    refresh_cache: bool,
+) -> Result<DashboardData, AppError> {
+    let report = scan_with_threat_intel(path, cache_path, refresh_cache).await?;
+    let plans = build_remediation_plans(&report).await?;
+    Ok(build_dashboard_data(report, plans))
 }
 
 async fn scan_with_threat_intel(
     path: &PathBuf,
     cache_path: Option<PathBuf>,
     refresh_cache: bool,
-) -> Result<ScanReport, Box<dyn std::error::Error>> {
+) -> Result<ScanReport, AppError> {
     let default_cache_path = path.join(".sknr").join("cache.db");
     let mut report = scan_npm_workspace(path)?;
     enrich_inventory_with_threat_intel(
