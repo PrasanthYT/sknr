@@ -10,6 +10,7 @@ fn scan_fixture_as_text_succeeds() {
     let output = Command::new(env!("CARGO_BIN_EXE_sknr"))
         .arg("scan")
         .arg(fixture_root())
+        .arg("--offline")
         .output()
         .expect("failed to run sknr scan");
 
@@ -21,8 +22,11 @@ fn scan_fixture_as_text_succeeds() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("services: 4"));
+    assert!(stdout.contains("packages: 6"));
+    assert!(stdout.contains("vulnerable packages: 0"));
     assert!(stdout.contains("api-gateway"));
     assert!(stdout.contains("lodash@4.17.20"));
+    assert!(stdout.contains("inventory:"));
 }
 
 #[test]
@@ -30,6 +34,7 @@ fn scan_fixture_as_json_succeeds() {
     let output = Command::new(env!("CARGO_BIN_EXE_sknr"))
         .arg("scan")
         .arg(fixture_root())
+        .arg("--offline")
         .arg("--format")
         .arg("json")
         .output()
@@ -45,7 +50,13 @@ fn scan_fixture_as_json_succeeds() {
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
 
     assert_eq!(json["services"].as_array().map(Vec::len), Some(4));
+    assert_eq!(json["inventory"].as_array().map(Vec::len), Some(6));
     assert_eq!(json["services"][0]["path"], "apps/api-gateway");
+    assert_eq!(json["inventory"][0]["name"], "axios");
+    assert_eq!(
+        json["inventory"][0]["advisories"].as_array().map(Vec::len),
+        Some(0)
+    );
 }
 
 #[test]

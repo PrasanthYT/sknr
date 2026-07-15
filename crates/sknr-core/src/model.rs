@@ -34,5 +34,27 @@ pub struct ScannedService {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ScanReport {
     pub root: String,
+    pub inventory: Vec<InventoryPackage>,
     pub services: Vec<ScannedService>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InventoryPackage {
+    pub name: String,
+    pub version: String,
+    pub relationships: Vec<DependencyRelationship>,
+    pub used_by: Vec<PackageUsage>,
+    pub advisories: Vec<AdvisorySummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PackageUsage {
+    pub service: String,
+    pub relationship: DependencyRelationship,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AdvisorySummary {
+    pub id: String,
+    pub modified: Option<String>,
 }
