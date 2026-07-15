@@ -20,7 +20,7 @@ docs/                Product and architecture notes
 - [x] Demo npm monorepo fixture. ✅
 - [x] npm dependency scanner. ✅
 - [x] service topology graph from `sknr.config.yaml`. ✅
-- [ ] OSV + CISA KEV threat-intel cache.
+- [x] OSV + CISA KEV threat-intel cache. ✅
 - [ ] lightweight reachability signal.
 - [ ] AI-backed priority buckets.
 - [ ] remediation planner.

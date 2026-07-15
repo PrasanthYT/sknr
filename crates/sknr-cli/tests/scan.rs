@@ -26,6 +26,7 @@ fn scan_fixture_as_text_succeeds() {
     assert!(stdout.contains("topology edges: 3"));
     assert!(stdout.contains("packages: 6"));
     assert!(stdout.contains("vulnerable packages: 0"));
+    assert!(stdout.contains("KEV matches: 0"));
     assert!(stdout.contains("api-gateway"));
     assert!(stdout.contains("lodash@4.17.20"));
     assert!(stdout.contains("inventory:"));
