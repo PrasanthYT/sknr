@@ -9,7 +9,7 @@ crates/
   sknr-core/        Rust domain models and scanner logic
   sknr-cli/         CLI entrypoint
 web/
-  dashboard/         Future React/Vite dashboard
+  dashboard/         Next.js + shadcn/ui security dashboard
 fixtures/
   demo-monorepo/     Vulnerable npm demo repo scanned by Sknr
 docs/                Product and architecture notes
@@ -26,5 +26,5 @@ docs/                Product and architecture notes
 - [x] remediation planner. ✅
 - [x] Codex executor. ✅
 - [x] verification loop. ✅
-- [ ] dashboard.
-- [ ] static HTML report.
+- [x] dashboard.
+- [x] static HTML report.

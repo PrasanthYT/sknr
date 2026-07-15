@@ -12,8 +12,8 @@
 | AI reasoning | GPT-5.6 via OpenAI API, structured output | JSON-schema-constrained so output is always parseable |
 | Remediation | Codex CLI/API as a subprocess | Real branch/patch/test, not templated version bumps |
 | Web API | `axum` (HTTP + WebSocket) | Same binary/container as the CLI, no separate service |
-| Dashboard | React + Vite + Tailwind + React Flow | Attack-path graph as real nodes/edges, live logs over WebSocket |
-| Report | `Tera` templates | Static, self-contained HTML, no server needed to view it |
+| Dashboard | Next.js + shadcn/ui-style components + Tailwind | Live scan, topology, priority, and remediation views over the `sknr dashboard` API |
+| Report | Rust static renderer | Static, self-contained HTML, no server needed to view it |
 | Stretch: GitHub | `octocrab` | Real PR creation against the demo repo |
 
 ---
@@ -58,11 +58,11 @@ SQLite via `rusqlite` — a single file, no external database service. This matc
 
 ## Dashboard
 
-React + Vite, Tailwind for styling, React Flow for the attack-path graph, a native WebSocket client for the live Codex log stream.
+Next.js, Tailwind, and local shadcn/ui-style primitives for the scan summary, service topology, vulnerable package table, priority buckets, and Codex task preview. The app can run against `sknr dashboard` during development or be statically exported and served by the same Rust dashboard command.
 
 ## Report generation
 
-`Tera` (Rust templating) rendering the same data the dashboard already has into one self-contained static HTML file — viewable with no server running.
+Rust rendering code serializes the same `DashboardData` used by the API into one self-contained static HTML file with inlined CSS and embedded JSON — viewable with no server running.
 
 ## Stretch: GitHub integration
 
