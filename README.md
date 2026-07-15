@@ -28,3 +28,23 @@ docs/                Product and architecture notes
 - [x] verification loop. ✅
 - [x] dashboard.
 - [x] static HTML report.
+
+## Product readiness backlog
+
+These are the next product-facing items to start from now that the core prototype is complete:
+
+- [ ] SARIF output for GitHub Code Scanning.
+- [ ] CI exit codes based on priority bucket.
+- [ ] `sknr init` to generate `sknr.config.yaml`.
+- [ ] GitHub PR creation after Codex execution.
+- [ ] Better dashboard detail pages.
+- [ ] Docker image / GitHub Action.
+- [ ] Scan history SQLite tables.
+- [ ] SBOM export.
+
+## Worth confirming before submission
+
+- [x] `--openai-model` defaults to GPT-5.6 when no override is provided.
+- [x] CISA KEV matching leaves GHSA-only/no-CVE advisories as `kev_match: null` instead of treating them as exploited.
+- [ ] Add a license file before positioning the repo as open source.
+- [ ] Capture the pre-remediation verification snapshot automatically from the dashboard flow instead of requiring manual `--before before-scan.json` file handling.
