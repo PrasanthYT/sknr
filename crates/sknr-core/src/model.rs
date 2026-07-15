@@ -12,6 +12,7 @@ pub struct Dependency {
     pub name: String,
     pub version: String,
     pub relationship: DependencyRelationship,
+    pub reachability: ReachabilitySignal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -53,6 +54,29 @@ pub struct InventoryPackage {
 pub struct PackageUsage {
     pub service: String,
     pub relationship: DependencyRelationship,
+    pub reachability: ReachabilitySignal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReachabilitySignal {
+    pub imported: bool,
+    pub evidence: Vec<ReachabilityEvidence>,
+}
+
+impl ReachabilitySignal {
+    pub fn not_found() -> Self {
+        Self {
+            imported: false,
+            evidence: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReachabilityEvidence {
+    pub path: String,
+    pub line: usize,
+    pub snippet: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

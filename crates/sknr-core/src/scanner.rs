@@ -1,6 +1,8 @@
 use crate::model::{
-    Dependency, DependencyRelationship, InventoryPackage, PackageUsage, ScanReport, ScannedService,
+    Dependency, DependencyRelationship, InventoryPackage, PackageUsage, ReachabilitySignal,
+    ScanReport, ScannedService,
 };
+use crate::reachability::apply_reachability_signals;
 use crate::topology::{apply_topology_config, TopologyError};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -107,7 +109,8 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
     for service_path in workspace_paths {
         let manifest_path = service_path.join("package.json");
         let service_manifest = read_service_manifest(&manifest_path)?;
-        let dependencies = resolve_dependencies(&service_manifest.dependencies, &package_index);
+        let mut dependencies = resolve_dependencies(&service_manifest.dependencies, &package_index);
+        apply_reachability_signals(&root, &service_path, &mut dependencies);
         let service_name = service_path
             .file_name()
             .and_then(|name| name.to_str())
@@ -273,6 +276,7 @@ fn resolve_dependencies(
                     name,
                     version: version.clone(),
                     relationship,
+                    reachability: ReachabilitySignal::not_found(),
                 })
             })
         })
@@ -281,7 +285,10 @@ fn resolve_dependencies(
 
 fn build_inventory(
     package_index: &BTreeMap<String, LockedPackage>,
-    service_relationships: &BTreeMap<String, BTreeMap<String, DependencyRelationship>>,
+    service_relationships: &BTreeMap<
+        String,
+        BTreeMap<String, (DependencyRelationship, ReachabilitySignal)>,
+    >,
 ) -> Vec<InventoryPackage> {
     package_index
         .iter()
@@ -291,10 +298,11 @@ fn build_inventory(
             let mut relationships = BTreeSet::new();
 
             for (service, dependencies) in service_relationships {
-                if let Some(relationship) = dependencies.get(name) {
+                if let Some((relationship, reachability)) = dependencies.get(name) {
                     used_by.push(PackageUsage {
                         service: service.clone(),
                         relationship: *relationship,
+                        reachability: reachability.clone(),
                     });
                     relationships.insert(*relationship);
                 }
@@ -313,7 +321,7 @@ fn build_inventory(
 
 fn build_service_relationships(
     services: &[ScannedService],
-) -> BTreeMap<String, BTreeMap<String, DependencyRelationship>> {
+) -> BTreeMap<String, BTreeMap<String, (DependencyRelationship, ReachabilitySignal)>> {
     services
         .iter()
         .map(|service| {
@@ -322,7 +330,12 @@ fn build_service_relationships(
                 service
                     .dependencies
                     .iter()
-                    .map(|dependency| (dependency.name.clone(), dependency.relationship))
+                    .map(|dependency| {
+                        (
+                            dependency.name.clone(),
+                            (dependency.relationship, dependency.reachability.clone()),
+                        )
+                    })
                     .collect(),
             )
         })
@@ -414,11 +427,13 @@ mod tests {
                     name: "minimist".to_string(),
                     version: "0.0.8".to_string(),
                     relationship: DependencyRelationship::Transitive,
+                    reachability: ReachabilitySignal::not_found(),
                 },
                 Dependency {
                     name: "mkdirp".to_string(),
                     version: "0.5.1".to_string(),
                     relationship: DependencyRelationship::Direct,
+                    reachability: ReachabilitySignal::not_found(),
                 },
             ]
         );
@@ -444,7 +459,16 @@ mod tests {
         ]);
         let service_relationships = BTreeMap::from([(
             "api-gateway".to_string(),
-            BTreeMap::from([("lodash".to_string(), DependencyRelationship::Direct)]),
+            BTreeMap::from([(
+                "lodash".to_string(),
+                (
+                    DependencyRelationship::Direct,
+                    ReachabilitySignal {
+                        imported: true,
+                        evidence: Vec::new(),
+                    },
+                ),
+            )]),
         )]);
 
         let inventory = build_inventory(&package_index, &service_relationships);
@@ -458,6 +482,10 @@ mod tests {
             vec![PackageUsage {
                 service: "api-gateway".to_string(),
                 relationship: DependencyRelationship::Direct,
+                reachability: ReachabilitySignal {
+                    imported: true,
+                    evidence: Vec::new(),
+                },
             }]
         );
     }
