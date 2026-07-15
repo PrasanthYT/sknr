@@ -1,0 +1,10 @@
+target/
+Cargo.lock
+web/dashboard/node_modules/
+web/dashboard/.next/
+web/dashboard/out/
+web/dashboard/tsconfig.tsbuildinfo
+fixtures/demo-monorepo/.sknr/
+.git/
+.env
+.env.*

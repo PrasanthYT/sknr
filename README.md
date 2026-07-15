@@ -33,14 +33,25 @@ docs/                Product and architecture notes
 
 These are the next product-facing items to start from now that the core prototype is complete:
 
-- [ ] SARIF output for GitHub Code Scanning.
-- [ ] CI exit codes based on priority bucket.
-- [ ] `sknr init` to generate `sknr.config.yaml`.
-- [ ] GitHub PR creation after Codex execution.
-- [ ] Better dashboard detail pages.
-- [ ] Docker image / GitHub Action.
-- [ ] Scan history SQLite tables.
-- [ ] SBOM export.
+- [x] SARIF output for GitHub Code Scanning.
+- [x] CI exit codes based on priority bucket.
+- [x] `sknr init` to generate `sknr.config.yaml`.
+- [x] GitHub PR creation after Codex execution.
+- [x] Better dashboard detail pages.
+- [x] Docker image / GitHub Action.
+- [x] Scan history SQLite tables.
+- [x] SBOM export.
+
+## Product readiness commands
+
+```bash
+sknr init .
+sknr scan . --format sarif --fail-on fix-now
+sknr scan . --save-history
+sknr history list .
+sknr sbom . --out bom.json
+sknr fix . --package lodash --service api-gateway --execute --create-pr --repo owner/repo
+```
 
 ## Worth confirming before submission
 
