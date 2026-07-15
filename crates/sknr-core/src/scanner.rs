@@ -1,4 +1,6 @@
-use crate::model::{Dependency, DependencyRelationship, ScanReport, ScannedService};
+use crate::model::{
+    Dependency, DependencyRelationship, InventoryPackage, PackageUsage, ScanReport, ScannedService,
+};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
@@ -99,17 +101,27 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
     let workspace_paths = expand_workspaces(&root, root_manifest.workspaces.as_ref())?;
 
     let mut services = Vec::new();
+    let mut service_relationships = BTreeMap::new();
     for service_path in workspace_paths {
         let manifest_path = service_path.join("package.json");
         let service_manifest = read_service_manifest(&manifest_path)?;
         let dependencies = resolve_dependencies(&service_manifest.dependencies, &package_index);
+        let service_name = service_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&service_manifest.package_name)
+            .to_string();
+
+        service_relationships.insert(
+            service_name.clone(),
+            dependencies
+                .iter()
+                .map(|dependency| (dependency.name.clone(), dependency.relationship))
+                .collect::<BTreeMap<_, _>>(),
+        );
 
         services.push(ScannedService {
-            name: service_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or(&service_manifest.package_name)
-                .to_string(),
+            name: service_name,
             path: normalize_path(&relative_path(&root, &service_path)),
             package_name: service_manifest.package_name,
             manifest_path: normalize_path(&relative_path(&root, &manifest_path)),
@@ -122,6 +134,7 @@ pub fn scan_npm_workspace(root: impl AsRef<Path>) -> Result<ScanReport, ScanErro
 
     Ok(ScanReport {
         root: root.display().to_string(),
+        inventory: build_inventory(&package_index, &service_relationships),
         services,
     })
 }
@@ -268,6 +281,38 @@ fn resolve_dependencies(
         .collect()
 }
 
+fn build_inventory(
+    package_index: &BTreeMap<String, LockedPackage>,
+    service_relationships: &BTreeMap<String, BTreeMap<String, DependencyRelationship>>,
+) -> Vec<InventoryPackage> {
+    package_index
+        .iter()
+        .filter_map(|(name, package)| {
+            let version = package.version.as_ref()?;
+            let mut used_by = Vec::new();
+            let mut relationships = BTreeSet::new();
+
+            for (service, dependencies) in service_relationships {
+                if let Some(relationship) = dependencies.get(name) {
+                    used_by.push(PackageUsage {
+                        service: service.clone(),
+                        relationship: *relationship,
+                    });
+                    relationships.insert(*relationship);
+                }
+            }
+
+            Some(InventoryPackage {
+                name: name.clone(),
+                version: version.clone(),
+                relationships: relationships.into_iter().collect(),
+                used_by,
+                advisories: Vec::new(),
+            })
+        })
+        .collect()
+}
+
 fn relative_path(root: &Path, path: &Path) -> PathBuf {
     path.strip_prefix(root).unwrap_or(path).to_path_buf()
 }
@@ -360,6 +405,44 @@ mod tests {
                     relationship: DependencyRelationship::Direct,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn builds_full_inventory_even_for_unused_lockfile_packages() {
+        let package_index = BTreeMap::from([
+            (
+                "left-pad".to_string(),
+                LockedPackage {
+                    version: Some("1.3.0".to_string()),
+                    dependencies: BTreeMap::new(),
+                },
+            ),
+            (
+                "lodash".to_string(),
+                LockedPackage {
+                    version: Some("4.17.20".to_string()),
+                    dependencies: BTreeMap::new(),
+                },
+            ),
+        ]);
+        let service_relationships = BTreeMap::from([(
+            "api-gateway".to_string(),
+            BTreeMap::from([("lodash".to_string(), DependencyRelationship::Direct)]),
+        )]);
+
+        let inventory = build_inventory(&package_index, &service_relationships);
+
+        assert_eq!(inventory.len(), 2);
+        assert_eq!(inventory[0].name, "left-pad");
+        assert!(inventory[0].used_by.is_empty());
+        assert_eq!(inventory[1].name, "lodash");
+        assert_eq!(
+            inventory[1].used_by,
+            vec![PackageUsage {
+                service: "api-gateway".to_string(),
+                relationship: DependencyRelationship::Direct,
+            }]
         );
     }
 }

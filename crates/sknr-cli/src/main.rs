@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use sknr_core::osv::enrich_inventory_with_osv;
 use sknr_core::scanner::scan_npm_workspace;
 use std::path::PathBuf;
 
@@ -20,6 +21,9 @@ enum Commands {
         /// Output format.
         #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
         format: OutputFormat,
+        /// Skip OSV advisory lookups and emit dependency inventory only.
+        #[arg(long)]
+        offline: bool,
     },
 }
 
@@ -29,19 +33,28 @@ enum OutputFormat {
     Json,
 }
 
-fn main() {
-    if let Err(error) = run() {
+#[tokio::main]
+async fn main() {
+    if let Err(error) = run().await {
         eprintln!("error: {error}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Scan { path, format } => {
-            let report = scan_npm_workspace(path)?;
+        Commands::Scan {
+            path,
+            format,
+            offline,
+        } => {
+            let mut report = scan_npm_workspace(path)?;
+            if !offline {
+                enrich_inventory_with_osv(&mut report.inventory).await?;
+            }
+
             match format {
                 OutputFormat::Text => print_text_report(&report),
                 OutputFormat::Json => {
@@ -56,6 +69,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 fn print_text_report(report: &sknr_core::model::ScanReport) {
     println!("root: {}", report.root);
+    println!("packages: {}", report.inventory.len());
+    println!(
+        "vulnerable packages: {}",
+        report
+            .inventory
+            .iter()
+            .filter(|package| !package.advisories.is_empty())
+            .count()
+    );
     println!("services: {}", report.services.len());
 
     for service in &report.services {
@@ -78,5 +100,17 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
                 dependency.name, dependency.version, dependency.relationship
             );
         }
+    }
+
+    println!();
+    println!("inventory:");
+    for package in &report.inventory {
+        println!(
+            "  - {}@{} (used by {} services, {} advisories)",
+            package.name,
+            package.version,
+            package.used_by.len(),
+            package.advisories.len()
+        );
     }
 }
