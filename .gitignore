@@ -8,6 +8,7 @@ build/
 .env
 .env.*
 !.env.example
+.sknr/
 *.db
 *.sqlite
 *.sqlite3
