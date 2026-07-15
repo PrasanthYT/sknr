@@ -103,6 +103,19 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
             .filter(|advisory| advisory.kev_match.is_some())
             .count()
     );
+    println!(
+        "reachable packages: {}",
+        report
+            .inventory
+            .iter()
+            .filter(|package| {
+                package
+                    .used_by
+                    .iter()
+                    .any(|usage| usage.reachability.imported)
+            })
+            .count()
+    );
     println!("services: {}", report.services.len());
     println!("topology nodes: {}", report.topology.nodes.len());
     println!("topology edges: {}", report.topology.edges.len());
@@ -134,11 +147,15 @@ fn print_text_report(report: &sknr_core::model::ScanReport) {
     println!("inventory:");
     for package in &report.inventory {
         println!(
-            "  - {}@{} (used by {} services, {} advisories)",
+            "  - {}@{} (used by {} services, {} advisories, reachable: {})",
             package.name,
             package.version,
             package.used_by.len(),
-            package.advisories.len()
+            package.advisories.len(),
+            package
+                .used_by
+                .iter()
+                .any(|usage| usage.reachability.imported)
         );
     }
 }

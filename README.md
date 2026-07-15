@@ -21,7 +21,7 @@ docs/                Product and architecture notes
 - [x] npm dependency scanner. ✅
 - [x] service topology graph from `sknr.config.yaml`. ✅
 - [x] OSV + CISA KEV threat-intel cache. ✅
-- [ ] lightweight reachability signal.
+- [x] lightweight reachability signal. ✅
 - [ ] AI-backed priority buckets.
 - [ ] remediation planner.
 - [ ] Codex executor.
